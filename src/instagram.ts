@@ -162,7 +162,7 @@ Transcript: ${data.transcript}
  * STEP 6️⃣ — Combine everything
  */
 (async () => {
-  const postUrl = "https://www.instagram.com/reel/DQwOrvZEjip/";
+  const postUrl = "https://www.instagram.com/p/DQ1WRy-Ev4g/?utm_source=ig_web_copy_link";
 
   console.log("🔍 Extracting visible Instagram data...");
   const visible = await fetchVisibleInstagramData(postUrl);
