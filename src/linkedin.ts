@@ -1,9 +1,23 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 const puppeteer = require("puppeteer");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+require("dotenv").config();
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-async function fetchLinkedInPostData(url: string) {
+// Delay helper
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Step 1️⃣ — Extract LinkedIn post (visible text)
+ */
+async function fetchLinkedInPostData(url: string): Promise<{
+  author: string;
+  title: string;
+  description: string;
+  hashtags: string;
+}> {
   console.log("🚀 Launching headless browser...");
   const browser = await puppeteer.launch({
     headless: true,
@@ -16,27 +30,27 @@ async function fetchLinkedInPostData(url: string) {
   console.log("🌐 Opening LinkedIn post:", url);
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
 
-  // scroll slowly to force React hydration
-  for (let i = 0; i < 6; i++) {
+  // Scroll to load all text
+  for (let i = 0; i < 5; i++) {
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-    await delay(2500);
+    await delay(2000);
   }
 
-  // wait for post container (feed content)
-  await page.waitForSelector("div.feed-shared-update-v2", { timeout: 15000 }).catch(() => {});
-  await delay(4000);
-
+  // Extract text content
   const post = await page.evaluate(() => {
-    //@ts-ignore
-    const clean = (t) => t?.replace(/\s+/g, " ").replace(/See more|...more/gi, "").trim() || "";
+    const clean = (t: string | null | undefined): string =>
+      t?.replace(/\s+/g, " ").replace(/See more|...more/gi, "").trim() || "";
 
-    // Find author name
     const author =
       document.querySelector("span.feed-shared-actor__name")?.textContent?.trim() ||
       document.querySelector("div.update-components-actor__title span")?.textContent?.trim() ||
       "Unknown";
 
-    // Capture all visible text under post body
+    const title =
+      document.querySelector("meta[property='og:title']")?.getAttribute("content") ||
+      document.querySelector("title")?.textContent?.trim() ||
+      "LinkedIn Post";
+
     const postContainer =
       document.querySelector("div.update-components-text") ||
       document.querySelector("div.feed-shared-update-v2__description-wrapper") ||
@@ -45,17 +59,12 @@ async function fetchLinkedInPostData(url: string) {
     let description = "";
     if (postContainer) {
       const walker = document.createTreeWalker(postContainer, NodeFilter.SHOW_TEXT, null);
-      let node;
+      let node: Node | null;
       while ((node = walker.nextNode())) {
-        const text = node.textContent?.trim();
+        const text = (node.textContent || "").trim();
         if (text && text.length > 2) description += text + " ";
       }
     }
-
-    const title =
-      document.querySelector("meta[property='og:title']")?.getAttribute("content") ||
-      document.querySelector("title")?.textContent?.trim() ||
-      "LinkedIn Post";
 
     const hashtags = Array.from(document.querySelectorAll("a[href*='/feed/hashtag/']"))
       .map((a) => a.textContent?.trim())
@@ -70,7 +79,25 @@ async function fetchLinkedInPostData(url: string) {
 }
 
 /**
- * Run example
+ * Step 2️⃣ — Summarize via Gemini
+ */
+async function summarizeWithGemini(fullText: string): Promise<string> {
+  console.log("🧠 Summarizing with Gemini...");
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const prompt = `
+You are a professional summarizer. Summarize the following LinkedIn post 
+Make it 2–3 sentences, concise, and engaging but dont miss any imp details.  
+Post Content:
+${fullText}
+`;
+
+  const result = await model.generateContent(prompt);
+  return result.response.text();
+}
+
+/**
+ * Step 3️⃣ — Combine everything
  */
 (async () => {
   const postUrl =
@@ -79,6 +106,23 @@ async function fetchLinkedInPostData(url: string) {
   console.log("🔍 Extracting LinkedIn post data...");
   const post = await fetchLinkedInPostData(postUrl);
 
-  console.log("\n✅ Final Extracted LinkedIn Data:");
+  console.log("\n✅ Extracted LinkedIn Data:");
   console.log(post);
+
+  if (!post.description || post.description.length < 20) {
+    console.log("⚠️ No description found — cannot summarize.");
+    return;
+  }
+
+  const combinedText = `
+Author: ${post.author}
+Title: ${post.title}
+Content: ${post.description}
+Hashtags: ${post.hashtags}
+  `;
+
+  const summary = await summarizeWithGemini(combinedText);
+
+  console.log("\n🧾 Final Summaries:");
+  console.log(summary);
 })();
