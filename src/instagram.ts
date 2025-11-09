@@ -144,7 +144,7 @@ async function summarizeWithGemini(data: any): Promise<string> {
   const prompt = `
 Create a short, clean, and human-friendly summary of this Instagram reel/post.
 Focus on what it’s about (topic, mood, content).
-Make it 2–3 sentences, concise, and engaging.
+Make it 2–3 sentences, concise, and engaging and dont miss any imp details.
 
 DATA:
 Author: ${data.author}
